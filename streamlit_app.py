@@ -2,14 +2,17 @@ import streamlit as st
 import random
 from datetime import datetime
 from gtts import gTTS
-import os
 import tempfile
+import altair as alt
+import pandas as pd
 
 # Initialize session state
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'mood_data' not in st.session_state:
     st.session_state.mood_data = []
+if 'reset_app' not in st.session_state:
+    st.session_state.reset_app = False
 
 # Define coping strategies
 coping_strategies = {
@@ -68,72 +71,120 @@ def text_to_speech(text, language='en'):
         tts.save(fp.name)
         st.audio(fp.name)
 
-# Streamlit UI
-st.title("🌟 Teen Talk: Mental Health Companion")
+# Function to reset chat history and mood data
+def reset_data():
+    st.session_state.chat_history = []
+    st.session_state.mood_data = []
+    st.session_state.reset_app = True
 
-# Sidebar for mood tracking
-with st.sidebar:
+# Streamlit UI
+st.set_page_config(page_title="Teen Talk: Mental Health Companion", page_icon="🌟", layout="wide")
+
+# Custom CSS for better styling
+st.markdown("""
+    <style>
+    .stButton>button {
+        width: 100%;
+        border-radius: 20px;
+    }
+    .stTextInput>div>div>input {
+        border-radius: 20px;
+    }
+    .stSelectbox>div>div>select {
+        border-radius: 20px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Main layout
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.title("🌟 Teen Talk: Mental Health Companion")
+    
+    # Main chat interface
+    st.header("💬 Chat with Teen Talk")
+    user_input = st.text_input("How are you feeling? Share what's on your mind:", key="user_input")
+
+    if user_input:
+        response, category = get_response(user_input)
+        st.session_state.chat_history.append(("You", user_input))
+        st.session_state.chat_history.append(("Teen Talk", response))
+        
+        # Text-to-speech for the response
+        text_to_speech(response)
+        
+        if category in coping_strategies:
+            strategy = random.choice(coping_strategies[category])
+            st.session_state.chat_history.append(("Teen Talk", f"Here's a coping strategy you can try: {strategy}"))
+            # Text-to-speech for the strategy
+            text_to_speech(strategy)
+
+    # Display chat history
+    chat_container = st.container()
+    with chat_container:
+        for i, (role, message) in enumerate(reversed(st.session_state.chat_history[-10:])):
+            if role == "You":
+                st.text_area("You:", value=message, height=70, key=f"user_message_{i}", disabled=True)
+            else:
+                st.text_area("Teen Talk:", value=message, height=100, key=f"bot_message_{i}", disabled=True)
+
+    # Coping exercises section
+    st.header("🧘‍♀️ Coping Exercises")
+    exercise_type = st.selectbox("Choose a type of exercise:", ["Breathing", "Mindfulness", "Positive Affirmations"])
+
+    if exercise_type == "Breathing":
+        exercise = "Try this 4-7-8 breathing technique: Inhale quietly through your nose for 4 seconds. Hold your breath for 7 seconds. Exhale completely through your mouth for 8 seconds. Repeat this cycle 4 times."
+    elif exercise_type == "Mindfulness":
+        exercise = "Practice this 1-minute mindfulness exercise: Sit comfortably and close your eyes. Focus on your breathing, noticing each inhale and exhale. If your mind wanders, gently bring your attention back to your breath. Continue for one minute."
+    elif exercise_type == "Positive Affirmations":
+        affirmations = [
+            "I am capable of handling whatever comes my way.",
+            "I choose to focus on what I can control.",
+            "I am worthy of love and respect.",
+            "My feelings are valid, and it's okay to express them.",
+            "I am growing and learning every day."
+        ]
+        exercise = f"Repeat this affirmation to yourself: {random.choice(affirmations)}"
+
+    st.write(exercise)
+    text_to_speech(exercise)
+
+with col2:
     st.header("🎭 Mood Tracker")
     mood = st.select_slider("How are you feeling right now?", 
                             options=["😞", "😟", "😐", "🙂", "😄"])
-    if st.button("Save Mood"):
+    if st.button("Save Mood", key="save_mood"):
         st.session_state.mood_data.append({"date": datetime.now(), "mood": mood})
         st.success("Mood saved!")
     
-    if st.button("View Mood History"):
+    if st.button("View Mood History", key="view_mood"):
         if st.session_state.mood_data:
-            moods = [entry["mood"] for entry in st.session_state.mood_data]
-            st.line_chart(moods)
+            df = pd.DataFrame(st.session_state.mood_data)
+            df['mood_numeric'] = df['mood'].map({"😞": 1, "😟": 2, "😐": 3, "🙂": 4, "😄": 5})
+            
+            chart = alt.Chart(df).mark_line().encode(
+                x='date:T',
+                y=alt.Y('mood_numeric:Q', scale=alt.Scale(domain=[1, 5])),
+                tooltip=['date', 'mood']
+            ).properties(
+                width=300,
+                height=200
+            )
+            
+            st.altair_chart(chart, use_container_width=True)
         else:
             st.info("No mood data available yet. Start tracking your mood!")
 
-# Main chat interface
-st.header("💬 Chat with Teen Talk")
-user_input = st.text_input("How are you feeling? Share what's on your mind:")
+    # Reset button
+    st.header("🔄 Reset Data")
+    if st.button("Reset All Data"):
+        reset_data()
 
-if user_input:
-    response, category = get_response(user_input)
-    st.session_state.chat_history.append(("You", user_input))
-    st.session_state.chat_history.append(("Teen Talk", response))
-    
-    # Text-to-speech for the response
-    text_to_speech(response)
-    
-    if category in coping_strategies:
-        strategy = random.choice(coping_strategies[category])
-        st.session_state.chat_history.append(("Teen Talk", f"Here's a coping strategy you can try: {strategy}"))
-        # Text-to-speech for the strategy
-        text_to_speech(strategy)
-
-# Display chat history
-chat_container = st.container()
-with chat_container:
-    for i, (role, message) in enumerate(st.session_state.chat_history):
-        if role == "You":
-            st.text_area("You:", value=message, height=70, key=f"user_message_{i}")
-        else:
-            st.text_area("Teen Talk:", value=message, height=100, key=f"bot_message_{i}")
-
-# Coping exercises section
-st.header("🧘‍♀️ Coping Exercises")
-exercise_type = st.selectbox("Choose a type of exercise:", ["Breathing", "Mindfulness", "Positive Affirmations"])
-
-if exercise_type == "Breathing":
-    exercise = "Try this 4-7-8 breathing technique: Inhale quietly through your nose for 4 seconds. Hold your breath for 7 seconds. Exhale completely through your mouth for 8 seconds. Repeat this cycle 4 times."
-elif exercise_type == "Mindfulness":
-    exercise = "Practice this 1-minute mindfulness exercise: Sit comfortably and close your eyes. Focus on your breathing, noticing each inhale and exhale. If your mind wanders, gently bring your attention back to your breath. Continue for one minute."
-elif exercise_type == "Positive Affirmations":
-    affirmations = [
-        "I am capable of handling whatever comes my way.",
-        "I choose to focus on what I can control.",
-        "I am worthy of love and respect.",
-        "My feelings are valid, and it's okay to express them.",
-        "I am growing and learning every day."
-    ]
-    exercise = f"Repeat this affirmation to yourself: {random.choice(affirmations)}"
-
-st.write(exercise)
-text_to_speech(exercise)
+# Check if reset was clicked and rerun the app
+if st.session_state.reset_app:
+    st.session_state.reset_app = False
+    st.rerun()
 
 st.markdown("---")
 st.caption("Remember, you're not alone. If you need professional help, please reach out to a trusted adult or mental health professional.")
